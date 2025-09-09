@@ -219,6 +219,15 @@ def load_city_layers(
     landuse = _read_shapefile_masked(landuse_path, bbox_gdf)
     waterways = _read_shapefile_masked(waterways_path, bbox_gdf)
 
+    mountain_path = (
+        Path("data")
+        / "GMBA_Inventory_v2.0_standard"
+        / "GMBA_Inventory_v2.0_standard.shp"
+    )
+    if city in ["Istanbul", "Tehran"]:
+        mountains = _read_shapefile_masked(mountain_path, bbox_gdf)
+    else:
+        mountains = None
     # Filter landuse by fclass
     landuse_filtered = landuse[
         landuse.get("fclass").isin(
@@ -247,7 +256,15 @@ def load_city_layers(
         clipped_geoboundaries = None
 
     return (
-        (railroads, normal_roads, primary_roads, water, landuse_filtered, waterways),
+        (
+            railroads,
+            normal_roads,
+            primary_roads,
+            water,
+            landuse_filtered,
+            waterways,
+            mountains,
+        ),
         clipped_geoboundaries,
         bbox_vals,
     )
@@ -279,21 +296,17 @@ def plot_city_map(
     fig,
     ax,
     clipped_geoboundaries: Optional[GeoDataFrame] = None,
-    rotate: bool = False,
-    # figsize: Tuple[float, float] = (12, 12),
 ) -> plt.Axes:
     """Plot the city map for a given color assignment.
 
     Args:
-        railroads: Railways layer.
-        primary_roads: Primary roads subset.
-        water: Water areas layer.
-        landuse_filtered: Landuse polygons filtered by allowed classes.
-        waterways: Waterways lines.
+        shapefiles: Tuple of Layers.
         bbox: BoundingBox to set plot limits.
         colors: Mapping of label -> hex color. Expected labels: ('bg','road','rail','landscape','land').
+        fig: figure to plot in.
+        ax: axis inside figure to plot in.
         clipped_geoboundaries: Optional country boundaries clipped to the bbox (Istanbul).
-        figsize: Matplotlib figure size (in inches).
+
 
     Returns:
         The matplotlib Axes used for the plot.
@@ -302,9 +315,15 @@ def plot_city_map(
         ValueError: If required color labels are missing.
     """
 
-    (railroads, normal_roads, primary_roads, water, landuse_filtered, waterways) = (
-        shapefiles
-    )
+    (
+        railroads,
+        normal_roads,
+        primary_roads,
+        water,
+        landuse_filtered,
+        waterways,
+        mountains,
+    ) = shapefiles
 
     missing = [label for label in LABELS if label not in colors]
     if missing:
@@ -317,6 +336,7 @@ def plot_city_map(
     landscape_color = colors["landscape"]
     land_color = colors["land"]
     water_color = colors["bg"]
+    mountain_color = colors["mountain"]
 
     # If we have Istanbul geoboundaries, draw land; otherwise use land as background.
     if clipped_geoboundaries is not None:
@@ -334,19 +354,16 @@ def plot_city_map(
     ax.set_facecolor(bg_color)
 
     # Layers (order matters)
+    if mountains is not None and not mountains.empty:
+        mountains.plot(ax=ax, color=mountain_color)
+    water.plot(ax=ax, color=water_color)
     landuse_filtered.plot(ax=ax, color=landscape_color)
     waterways.plot(ax=ax, color=water_color, linewidth=0.5)
     water.plot(ax=ax, color=water_color)
-    primary_roads.plot(ax=ax, color=road_color, linewidth=0.2)
-    # normal_roads.plot(ax=ax, color=road_color, linewidth=0.1)
-    railroads.plot(ax=ax, color=rail_color, linewidth=0.3)
+    primary_roads.plot(ax=ax, color=road_color, linewidth=0.4)
+    normal_roads.plot(ax=ax, color=road_color, linewidth=0.2)
+    railroads.plot(ax=ax, color=rail_color, linewidth=0.5)
 
-    # if rotate:
-    #     # Swap axes to rotate the view 90° counterclockwise
-    #     ax.set_xlim(bbox["miny"], bbox["maxy"])
-    #     ax.set_ylim(bbox["maxx"], bbox["minx"])
-    #     ax.invert_yaxis()  # keep orientation consistent
-    # else:
     ax.set_xlim(bbox["minx"], bbox["maxx"])
     ax.set_ylim(bbox["miny"], bbox["maxy"])
 
@@ -486,7 +503,7 @@ def _bbox_size_meters(bbox: dict) -> tuple[float, float]:
     return max(width_m, 1e-6), max(height_m, 1e-6)
 
 
-def save_a0_three_axes_same_scale(
+def save_cities_same_scale_same_figure(
     *,
     cities: list[str],  # e.g. ["Tehran", "Darmstadt", "Aachen"]
     foldernames: Mapping[str, str],
@@ -549,10 +566,6 @@ def save_a0_three_axes_same_scale(
 
     # Create each axes with appropriate physical size, centered horizontally
     for idx, it in enumerate(items):
-        if idx == 1:
-            rotate = True
-        else:
-            rotate = False
 
         if idx <= 1:
             left_in = current_x_in
@@ -574,7 +587,6 @@ def save_a0_three_axes_same_scale(
                 clipped_geoboundaries=it["clipped"],
                 fig=fig,
                 ax=ax,
-                rotate=rotate,
             )
 
             current_y_in = max(
